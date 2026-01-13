@@ -23,4 +23,15 @@ jobs:
     runs-on: 'ubuntu-latest'
     steps:
       - run: echo "Triggered by a PR"
-
+  artifact_1:
+    needs: push
+    runs-on: ubuntu-latest
+    steps:
+      - run: cat <<EOF > output.txt
+             this is an artifact 
+             EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: art1
+          path: output.txt
+    
