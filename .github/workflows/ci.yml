@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: echo "hello user"
+  after_push:
+    needs: push
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "This is a post push check. Only succeeds when push succeeds"
   on_pull:
     if: github.event_name == 'pull_request'
     runs-on: 'ubuntu-latest'
