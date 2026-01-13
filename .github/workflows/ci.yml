@@ -3,12 +3,19 @@
 name: CI
 
 # Controls when the workflow will run
-on: push
-
+on: 
+  push:
+  pull_request:
 jobs:
-  test1:
+  push:
+    if: github.events.name == 'push'
     runs-on: 'ubuntu-latest'
     steps:
       - uses: actions/checkout@v4
-      - run: echo "hello world CI"
-    
+      - run: echo "hello user"
+  on_pull:
+    if: github.events.name == 'pull_request'
+    runs-on: 'ubuntu-latest'
+    steps:
+      - run: echo "Triggered by a PR"
+
