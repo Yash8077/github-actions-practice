@@ -36,4 +36,18 @@ jobs:
         with:
           name: art1
           path: output.txt
-    
+  artifact_2:
+    needs: artifact_1
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: art1
+      - run: |
+          cat <<EOF >> output.txt
+          Artifact_2 appended this text
+          EOF
+      - uses: actions/upload_artifact@v4
+        with:
+          name: art2
+          path: output.txt
