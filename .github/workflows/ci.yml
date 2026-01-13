@@ -8,13 +8,13 @@ on:
   pull_request:
 jobs:
   push:
-    if: github.events.name == 'push'
+    if: github.event_name == 'push'
     runs-on: 'ubuntu-latest'
     steps:
       - uses: actions/checkout@v4
       - run: echo "hello user"
   on_pull:
-    if: github.events.name == 'pull_request'
+    if: github.event_name == 'pull_request'
     runs-on: 'ubuntu-latest'
     steps:
       - run: echo "Triggered by a PR"
