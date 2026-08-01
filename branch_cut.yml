@@ -1,0 +1,112 @@
+name: RSG Release Branch-Cut Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release Version
+        required: true
+
+      service_group:
+        description: Target Service Group
+        required: true
+        type: choice
+        options:
+          - Core Services
+          - Edge Services
+          - Infrastructure
+          - Shared Engineering
+
+      execution_mode:
+        description: Preview or Apply
+        required: true
+        default: Preview
+        type: choice
+        options:
+          - Preview
+          - Apply
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+
+  discover-repositories:
+    runs-on: ubuntu-latest
+
+    outputs:
+      matrix: ${{ steps.discovery.outputs.matrix }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Discover repositories
+        id: discovery
+        run: |
+          python scripts/discover_repositories.py \
+            --service-group "${{ inputs.service_group }}" \
+            --release "${{ inputs.release_version }}"
+
+  preview:
+    needs: discover-repositories
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        repository: ${{ fromJson(needs.discover-repositories.outputs.matrix) }}
+
+    uses: ./.github/workflows/release-preview.yml
+
+    with:
+      repository: ${{ matrix.repository }}
+      release: ${{ inputs.release_version }}
+
+  approval:
+    if: inputs.execution_mode == 'Apply'
+
+    needs: preview
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: Production Release
+
+    steps:
+      - name: Await Release Approval
+        run: echo "Approved"
+
+  branch-cut:
+    if: inputs.execution_mode == 'Apply'
+
+    needs:
+      - approval
+      - discover-repositories
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        repository: ${{ fromJson(needs.discover-repositories.outputs.matrix) }}
+
+    uses: ./.github/workflows/release-apply.yml
+
+    with:
+      repository: ${{ matrix.repository }}
+      release: ${{ inputs.release_version }}
+
+  summary:
+
+    needs:
+      - preview
+      - branch-cut
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Generate Release Summary
+        run: python scripts/generate_summary.py
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
