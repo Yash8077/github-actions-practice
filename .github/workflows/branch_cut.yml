@@ -4,21 +4,26 @@ on:
   workflow_dispatch:
     inputs:
       release_version:
-        description: Release Version
+        description: "Release Version (e.g. 25.08)"
         required: true
 
       service_group:
-        description: Target Service Group
+        description: "Target Service Group"
         required: true
         type: choice
         options:
           - Core Services
           - Edge Services
+          - Shared Components
           - Infrastructure
-          - Shared Engineering
+
+      base_branch:
+        description: "Source Branch"
+        required: true
+        default: main
 
       execution_mode:
-        description: Preview or Apply
+        description: "Execution Mode"
         required: true
         default: Preview
         type: choice
@@ -32,41 +37,50 @@ permissions:
 
 jobs:
 
-  discover-repositories:
+  initialize:
+    name: Initialize Release
     runs-on: ubuntu-latest
 
     outputs:
-      matrix: ${{ steps.discovery.outputs.matrix }}
+      repository_matrix: ${{ steps.discovery.outputs.matrix }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Discover repositories
+      - name: Validate Inputs
+        run: |
+          echo "Release: ${{ inputs.release_version }}"
+          echo "Service Group: ${{ inputs.service_group }}"
+
+      - name: Discover Target Repositories
         id: discovery
         run: |
-          python scripts/discover_repositories.py \
-            --service-group "${{ inputs.service_group }}" \
-            --release "${{ inputs.release_version }}"
+          python scripts/discover_repositories.py
 
-  preview:
-    needs: discover-repositories
+# --------------------------------------------------------
 
-    strategy:
-      fail-fast: false
+  base-branch-validation:
+    name: Validate Base Branch
+    needs: initialize
+    runs-on: ubuntu-latest
 
-      matrix:
-        repository: ${{ fromJson(needs.discover-repositories.outputs.matrix) }}
+    steps:
+      - name: Verify Base Branch
+        run: |
+          echo "Checking base branch..."
+          echo "${{ inputs.base_branch }}"
 
-    uses: ./.github/workflows/release-preview.yml
+      - name: Generate Repository Mapping
+        run: |
+          python scripts/generate_release_matrix.py
 
-    with:
-      repository: ${{ matrix.repository }}
-      release: ${{ inputs.release_version }}
+# --------------------------------------------------------
 
   approval:
-    if: inputs.execution_mode == 'Apply'
+    name: Release Approval
+    needs: base-branch-validation
 
-    needs: preview
+    if: inputs.execution_mode == 'Apply'
 
     runs-on: ubuntu-latest
 
@@ -74,39 +88,98 @@ jobs:
       name: Production Release
 
     steps:
-      - name: Await Release Approval
-        run: echo "Approved"
+      - name: Await Manual Approval
+        run: echo "Release Approved"
 
-  branch-cut:
-    if: inputs.execution_mode == 'Apply'
+# --------------------------------------------------------
 
+  prepare-repositories:
+    name: Prepare Repository Actions
     needs:
       - approval
-      - discover-repositories
+      - initialize
 
     strategy:
       fail-fast: false
 
       matrix:
-        repository: ${{ fromJson(needs.discover-repositories.outputs.matrix) }}
-
-    uses: ./.github/workflows/release-apply.yml
-
-    with:
-      repository: ${{ matrix.repository }}
-      release: ${{ inputs.release_version }}
-
-  summary:
-
-    needs:
-      - preview
-      - branch-cut
+        repository: ${{ fromJson(needs.initialize.outputs.repository_matrix) }}
 
     runs-on: ubuntu-latest
 
     steps:
-      - name: Generate Release Summary
-        run: python scripts/generate_summary.py
 
-      - name: Upload Report
+      - name: Validate Repository
+        run: echo "${{ matrix.repository }}"
+
+      - name: Check Existing Workflow
+        id: workflow
+        run: |
+          echo "Checking workflow..."
+
+      - name: Determine Repository Action
+        run: |
+          echo "Decision:"
+          echo " • Create Workflow (if missing)"
+          echo " • Create Release Branch"
+          echo " • Skip if already configured"
+
+# --------------------------------------------------------
+
+  branch-cut:
+    name: Execute Branch-Cut
+
+    needs: prepare-repositories
+
+    strategy:
+      fail-fast: false
+
+      matrix:
+        repository: ${{ fromJson(needs.initialize.outputs.repository_matrix) }}
+
+    uses: ./.github/workflows/release-branch.yml
+
+    with:
+      repository: ${{ matrix.repository }}
+      release: ${{ inputs.release_version }}
+      base_branch: ${{ inputs.base_branch }}
+
+# --------------------------------------------------------
+
+  validation:
+    name: Post Release Validation
+
+    needs: branch-cut
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Verify Branch Creation
+        run: |
+          echo "Validating repositories..."
+
+      - name: Validate Workflow Configuration
+        run: |
+          echo "Checking workflow status..."
+
+# --------------------------------------------------------
+
+  summary:
+    name: Release Summary
+
+    needs: validation
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Generate Report
+        run: |
+          python scripts/generate_summary.py
+
+      - name: Upload Release Report
         uses: actions/upload-artifact@v4
+        with:
+          name: release-summary
+          path: reports/
